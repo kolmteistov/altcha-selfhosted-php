@@ -13,11 +13,23 @@
     <script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const widget = document.querySelector('altcha-widget');
-        if (widget) {
+        const widget    = document.querySelector('altcha-widget');
+        const submitBtn = document.getElementById('btn-submit');
+
+        if (widget && submitBtn) {
+            // Disable button until Altcha finishes proof-of-work
+            submitBtn.disabled = true;
+            submitBtn.title    = 'Waiting for captcha verification...';
+
             widget.addEventListener('statechange', (ev) => {
                 if (ev.detail.state === 'verified') {
                     document.getElementById('altcha_input').value = ev.detail.payload;
+                    submitBtn.disabled = false;
+                    submitBtn.title    = '';
+                } else {
+                    // Reset if state changes (e.g. expired)
+                    submitBtn.disabled = true;
+                    document.getElementById('altcha_input').value = '';
                 }
             });
         }
@@ -60,7 +72,7 @@
         <br>
         @endif
 
-        <button type="submit">Login</button>
+        <button type="submit" id="btn-submit">Login</button>
     </form>
 </body>
 </html>
