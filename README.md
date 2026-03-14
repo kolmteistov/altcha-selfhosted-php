@@ -79,11 +79,20 @@ $challenge = generateAltchaChallenge(100000); // complexity default
 <script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const widget = document.querySelector('altcha-widget');
-    if (widget) {
+    const widget    = document.querySelector('altcha-widget');
+    const submitBtn = document.getElementById('btn-submit');
+
+    if (widget && submitBtn) {
+        // Disable tombol sampai Altcha selesai proof-of-work
+        submitBtn.disabled = true;
+
         widget.addEventListener('statechange', (ev) => {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
+                submitBtn.disabled = false;
+            } else {
+                submitBtn.disabled = true;
+                document.getElementById('altcha_input').value = '';
             }
         });
     }
@@ -97,7 +106,15 @@ document.addEventListener('DOMContentLoaded', function () {
     hidelogo
 ></altcha-widget>
 <input type="hidden" name="altcha" id="altcha_input">
+
+<!-- Tambahkan id="btn-submit" pada tombol submit -->
+<button type="submit" id="btn-submit">Login</button>
 ```
+
+> **Kenapa perlu disable button?**
+> Altcha adalah proof-of-work — browser perlu menyelesaikan kalkulasi hash dulu sebelum token siap.
+> Jika form di-submit sebelum selesai, token belum valid dan verifikasi akan gagal.
+> Dengan mendisable tombol sampai `state === 'verified'`, masalah ini teratasi sepenuhnya.
 
 ### 6. Verifikasi saat form di-submit
 
@@ -168,11 +185,20 @@ public function showLogin()
 <script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const widget = document.querySelector('altcha-widget');
-    if (widget) {
+    const widget    = document.querySelector('altcha-widget');
+    const submitBtn = document.getElementById('btn-submit');
+
+    if (widget && submitBtn) {
+        // Disable tombol sampai Altcha selesai proof-of-work
+        submitBtn.disabled = true;
+
         widget.addEventListener('statechange', (ev) => {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
+                submitBtn.disabled = false;
+            } else {
+                submitBtn.disabled = true;
+                document.getElementById('altcha_input').value = '';
             }
         });
     }
@@ -189,7 +215,15 @@ document.addEventListener('DOMContentLoaded', function () {
 ></altcha-widget>
 <input type="hidden" name="altcha" id="altcha_input">
 @endif
+
+{{-- Tambahkan id="btn-submit" pada tombol submit --}}
+<button type="submit" id="btn-submit">Login</button>
 ```
+
+> **Kenapa perlu disable button?**
+> Altcha adalah proof-of-work — browser perlu menyelesaikan kalkulasi hash dulu sebelum token siap.
+> Jika form di-submit sebelum selesai, token belum valid dan verifikasi akan gagal.
+> Dengan mendisable tombol sampai `state === 'verified'`, masalah ini teratasi sepenuhnya.
 
 ### 5. Verifikasi di Controller
 
