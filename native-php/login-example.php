@@ -54,11 +54,23 @@ $challenge = CAPTCHA_ENABLED ? generateAltchaChallenge(100000) : null;
     <script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const widget = document.querySelector('altcha-widget');
-        if (widget) {
+        const widget    = document.querySelector('altcha-widget');
+        const submitBtn = document.getElementById('btn-submit');
+
+        if (widget && submitBtn) {
+            // Disable button until Altcha finishes proof-of-work
+            submitBtn.disabled = true;
+            submitBtn.title    = 'Menunggu verifikasi captcha...';
+
             widget.addEventListener('statechange', (ev) => {
                 if (ev.detail.state === 'verified') {
                     document.getElementById('altcha_input').value = ev.detail.payload;
+                    submitBtn.disabled = false;
+                    submitBtn.title    = '';
+                } else {
+                    // Reset if state changes (e.g. expired)
+                    submitBtn.disabled = true;
+                    document.getElementById('altcha_input').value = '';
                 }
             });
         }
@@ -102,7 +114,7 @@ $challenge = CAPTCHA_ENABLED ? generateAltchaChallenge(100000) : null;
         <br>
         <?php endif; ?>
 
-        <button type="submit">Login</button>
+        <button type="submit" id="btn-submit">Login</button>
     </form>
 </body>
 </html>
