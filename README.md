@@ -34,9 +34,10 @@ Server                          Client (Browser)
 
 Tidak ada API call eksternal. Semua verifikasi terjadi di server kamu.
 
-**Keunggulan implementasi ini: STATELESS**
-Verifikasi tidak bergantung pada session — server hanya perlu memvalidasi HMAC signature dan bukti proof-of-work.
-Aman untuk multi-worker, load balancer, dan tidak ada race condition.
+**Keunggulan implementasi ini: STATELESS + EXPIRY**
+- Verifikasi tidak bergantung pada session — server hanya perlu memvalidasi HMAC signature dan PoW
+- Expiry disimpan di dalam salt (format: `randomhex?expires=TIMESTAMP`) — tidak bisa dimanipulasi client
+- Aman untuk multi-worker, load balancer, dan tidak ada race condition
 
 ---
 
@@ -94,6 +95,11 @@ document.addEventListener('DOMContentLoaded', function () {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
                 submitBtn.disabled = false;
+            } else if (ev.detail.state === 'expired' || ev.detail.state === 'error') {
+                // Challenge expired — reload untuk generate challenge baru
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Captcha expired, memuat ulang...';
+                setTimeout(() => location.reload(), 2000);
             } else {
                 submitBtn.disabled = true;
                 document.getElementById('altcha_input').value = '';
@@ -115,9 +121,9 @@ document.addEventListener('DOMContentLoaded', function () {
 <button type="submit" id="btn-submit">Login</button>
 ```
 
-> **Kenapa disable button?**
-> Tombol di-disable sampai Altcha selesai kalkulasi proof-of-work di browser.
-> Verifikasi sepenuhnya stateless via HMAC signature — tidak butuh session, tidak ada race condition.
+> **Kenapa disable button + handle expired?**
+> Tombol di-disable sampai Altcha selesai proof-of-work. Jika challenge expired (user diam 15+ menit),
+> handler `expired` otomatis reload halaman untuk generate challenge baru — tidak perlu refresh manual.
 
 ### 6. Verifikasi saat form di-submit
 
@@ -199,6 +205,11 @@ document.addEventListener('DOMContentLoaded', function () {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
                 submitBtn.disabled = false;
+            } else if (ev.detail.state === 'expired' || ev.detail.state === 'error') {
+                // Challenge expired — reload untuk generate challenge baru
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Captcha expired, reloading...';
+                setTimeout(() => location.reload(), 2000);
             } else {
                 submitBtn.disabled = true;
                 document.getElementById('altcha_input').value = '';
@@ -223,9 +234,9 @@ document.addEventListener('DOMContentLoaded', function () {
 <button type="submit" id="btn-submit">Login</button>
 ```
 
-> **Kenapa disable button?**
-> Tombol di-disable sampai Altcha selesai kalkulasi proof-of-work di browser.
-> Verifikasi sepenuhnya stateless via HMAC signature — tidak butuh session, tidak ada race condition.
+> **Kenapa disable button + handle expired?**
+> Tombol di-disable sampai Altcha selesai proof-of-work. Jika challenge expired (user diam 15+ menit),
+> handler `expired` otomatis reload halaman untuk generate challenge baru — tidak perlu refresh manual.
 
 ### 5. Verifikasi di Controller
 
@@ -284,10 +295,12 @@ Contoh dengan auto-solve (invisible captcha):
 - `100000` — default, balance antara keamanan dan kecepatan
 - `200000` — lebih aman, sedikit lebih lambat di client
 
-**Stateless Verification**
+**Stateless + Expiry**
 - Verifikasi via HMAC signature — tidak butuh session
-- Aman untuk multi-worker, load balancer, dan concurrent request
-- Tidak ada race condition
+- Expiry disimpan di salt: `randomhex?expires=TIMESTAMP` — client tidak bisa manipulasi
+- Challenge berlaku 15 menit, auto-reload jika expired
+- Secret key auto-rotate setiap 24 jam (trigger by request, tanpa crontab)
+- Aman untuk multi-worker, load balancer, tidak ada race condition
 
 **Kombinasi dengan Rate Limit**
 Altcha mencegah bot otomatis, tapi tetap kombinasikan dengan rate limit by email/username untuk perlindungan berlapis — terutama jika digunakan di Tor hidden service (jangan rate limit by IP).
