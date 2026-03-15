@@ -280,7 +280,7 @@ Contoh dengan auto-solve (invisible captcha):
 - Jangan commit secret ke repository
 
 **Complexity**
-- `50000` — ringan, cocok untuk server lemah
+- `50000` — ringan, cocok untuk server kecil
 - `100000` — default, balance antara keamanan dan kecepatan
 - `200000` — lebih aman, sedikit lebih lambat di client
 
