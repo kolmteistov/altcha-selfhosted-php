@@ -89,7 +89,23 @@ document.addEventListener('DOMContentLoaded', function () {
         widget.addEventListener('statechange', (ev) => {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
-                submitBtn.disabled = false;
+
+                // Delay sebelum tombol aktif — beri waktu token sinkron ke session
+                // Sesuaikan nilai (detik) dengan kecepatan server kamu
+                let sisa = 2;
+                const btnText = submitBtn.textContent;
+                submitBtn.disabled = true;
+
+                const interval = setInterval(() => {
+                    submitBtn.textContent = `Siap dalam ${sisa}s`;
+                    sisa--;
+                    if (sisa < 0) {
+                        clearInterval(interval);
+                        submitBtn.textContent = btnText;
+                        submitBtn.disabled = false;
+                    }
+                }, 1000);
+
             } else {
                 submitBtn.disabled = true;
                 document.getElementById('altcha_input').value = '';
@@ -111,10 +127,11 @@ document.addEventListener('DOMContentLoaded', function () {
 <button type="submit" id="btn-submit">Login</button>
 ```
 
-> **Kenapa perlu disable button?**
+> **Kenapa perlu disable button + delay?**
 > Altcha adalah proof-of-work — browser perlu menyelesaikan kalkulasi hash dulu sebelum token siap.
-> Jika form di-submit sebelum selesai, token belum valid dan verifikasi akan gagal.
-> Dengan mendisable tombol sampai `state === 'verified'`, masalah ini teratasi sepenuhnya.
+> Jika form di-submit terlalu cepat setelah `verified`, token bisa saja belum tersinkron ke session server
+> dan verifikasi akan gagal. Disable + delay 1-2 detik mengatasi masalah ini sepenuhnya.
+> Sesuaikan nilai delay dengan kecepatan server kamu (`sisa = 1` untuk server cepat, `sisa = 3` untuk server lambat).
 
 ### 6. Verifikasi saat form di-submit
 
@@ -195,7 +212,23 @@ document.addEventListener('DOMContentLoaded', function () {
         widget.addEventListener('statechange', (ev) => {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
-                submitBtn.disabled = false;
+
+                // Delay sebelum tombol aktif — beri waktu token sinkron ke session
+                // Sesuaikan nilai (detik) dengan kecepatan server kamu
+                let sisa = 2;
+                const btnText = submitBtn.textContent;
+                submitBtn.disabled = true;
+
+                const interval = setInterval(() => {
+                    submitBtn.textContent = `Ready in ${sisa}s`;
+                    sisa--;
+                    if (sisa < 0) {
+                        clearInterval(interval);
+                        submitBtn.textContent = btnText;
+                        submitBtn.disabled = false;
+                    }
+                }, 1000);
+
             } else {
                 submitBtn.disabled = true;
                 document.getElementById('altcha_input').value = '';
@@ -220,10 +253,11 @@ document.addEventListener('DOMContentLoaded', function () {
 <button type="submit" id="btn-submit">Login</button>
 ```
 
-> **Kenapa perlu disable button?**
+> **Kenapa perlu disable button + delay?**
 > Altcha adalah proof-of-work — browser perlu menyelesaikan kalkulasi hash dulu sebelum token siap.
-> Jika form di-submit sebelum selesai, token belum valid dan verifikasi akan gagal.
-> Dengan mendisable tombol sampai `state === 'verified'`, masalah ini teratasi sepenuhnya.
+> Jika form di-submit terlalu cepat setelah `verified`, token bisa saja belum tersinkron ke session server
+> dan verifikasi akan gagal. Disable + delay 1-2 detik mengatasi masalah ini sepenuhnya.
+> Sesuaikan nilai delay dengan kecepatan server kamu (`sisa = 1` untuk server cepat, `sisa = 3` untuk server lambat).
 
 ### 5. Verifikasi di Controller
 
