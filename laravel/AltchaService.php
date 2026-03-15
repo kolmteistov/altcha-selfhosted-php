@@ -4,7 +4,8 @@
  * Altcha Self-Hosted Service - Laravel
  *
  * STATELESS implementation — verifikasi via HMAC signature, tanpa session.
- * Tidak ada race condition, aman untuk multi-worker (Nginx, Load Balancer, dll).
+ * Expiry disimpan di dalam salt — tidak bisa dimanipulasi client.
+ * Secret key auto-rotate setiap 24 jam saat generateChallenge() dipanggil.
  *
  * Drop this file into app/Services/ in your Laravel project.
  * Secret key is stored in the settings table or .env.
@@ -14,15 +15,24 @@ namespace App\Services;
 
 class AltchaService
 {
+    // Berapa menit challenge berlaku
+    const CHALLENGE_TTL_MINUTES = 15;
+
+    // Berapa jam secret key otomatis dirotasi
+    const SECRET_ROTATE_HOURS = 24;
+
     /**
-     * Generate Altcha challenge
-     * 
-     * @param int $complexity  Higher = harder for client to solve (default: 100000)
-     * @return array           Challenge data to pass to Blade view
+     * Generate Altcha challenge dengan expiry di dalam salt
+     * Teknik ini sesuai library resmi altcha-org/altcha-lib-php
      */
     public static function generateChallenge(int $complexity = 100000): array
     {
-        $salt         = bin2hex(random_bytes(16));
+        $saltRaw  = bin2hex(random_bytes(16));
+        $expires  = time() + (self::CHALLENGE_TTL_MINUTES * 60);
+
+        // Embed expires di salt — widget kirim balik salt apa adanya
+        $salt = $saltRaw . '?expires=' . $expires;
+
         $secretNumber = rand(1, $complexity);
         $challenge    = hash('sha256', $salt . $secretNumber);
 
@@ -35,7 +45,6 @@ class AltchaService
 
         $signature = hash_hmac('sha256', $signatureData, self::getSecret());
 
-        // Session tidak diperlukan lagi — verifikasi sepenuhnya via HMAC signature
         return [
             'algorithm' => 'SHA-256',
             'challenge' => $challenge,
@@ -46,8 +55,7 @@ class AltchaService
     }
 
     /**
-     * Verify Altcha solution — STATELESS via HMAC signature
-     * Tidak butuh session, tidak ada race condition
+     * Verify solution — STATELESS: cek expiry dari salt + HMAC signature + PoW
      */
     public static function verifySolution(?string $payload): bool
     {
@@ -59,16 +67,24 @@ class AltchaService
         $data = json_decode($decoded, true);
         if (!$data) return false;
 
-        // Cek field wajib
         foreach (['algorithm', 'challenge', 'number', 'salt', 'signature'] as $field) {
             if (!isset($data[$field])) return false;
         }
 
-        // Verifikasi algoritma
+        // 1. Cek expiry dari salt — hemat CPU kalau sudah basi
+        $salt = $data['salt'];
+        if (str_contains($salt, '?expires=')) {
+            $parts   = explode('?expires=', $salt, 2);
+            $expires = (int) ($parts[1] ?? 0);
+            if ($expires > 0 && time() > $expires) {
+                return false;
+            }
+        }
+
+        // 2. Verifikasi algoritma
         if (strtoupper($data['algorithm']) !== 'SHA-256') return false;
 
-        // Verifikasi HMAC signature — pastikan challenge dibuat oleh server ini
-        // Tidak perlu session: signature sudah membuktikan keaslian challenge
+        // 3. Verifikasi HMAC signature — salt (beserta expires) ikut dicek
         $signatureData = json_encode([
             'algorithm' => 'SHA-256',
             'challenge' => $data['challenge'],
@@ -82,40 +98,56 @@ class AltchaService
             return false;
         }
 
-        // Verifikasi proof-of-work
-        $computedHash = hash('sha256', $data['salt'] . $data['number']);
-        if ($computedHash !== $data['challenge']) return false;
-
-        // Verifikasi range number
+        // 4. Verifikasi range number
         $maxnumber = $data['maxnumber'] ?? 100000;
         if ($data['number'] < 0 || $data['number'] > $maxnumber) return false;
 
-        return true;
+        // 5. Verifikasi proof-of-work
+        $computedHash = hash('sha256', $data['salt'] . $data['number']);
+        return $computedHash === $data['challenge'];
     }
 
     /**
-     * Get or generate secret key
-     * Reads from settings table first, falls back to .env
+     * Ambil secret key — auto-rotate setiap 24 jam
+     * Rotate terjadi saat generateChallenge() dipanggil (showLogin/showRegister)
+     * Tidak butuh crontab — trigger by request
      */
     public static function getSecret(): string
     {
-        // Try settings table first (if you have one)
         if (class_exists(\App\Models\Setting::class)) {
-            $secret = \App\Models\Setting::get('altcha_secret');
-            if ($secret) return $secret;
+            $secret      = \App\Models\Setting::get('altcha_secret');
+            $lastRotated = (int) \App\Models\Setting::get('altcha_secret_rotated_at', '0');
+
+            $shouldRotate = !$secret
+                || (time() - $lastRotated) > (self::SECRET_ROTATE_HOURS * 3600);
+
+            if ($shouldRotate) {
+                $secret = bin2hex(random_bytes(32));
+                \App\Models\Setting::set('altcha_secret', $secret);
+                \App\Models\Setting::set('altcha_secret_rotated_at', (string) time());
+            }
+
+            return $secret;
         }
 
-        // Fallback to .env
+        // Fallback ke .env jika tidak ada settings table
         $secret = config('app.altcha_secret', env('ALTCHA_SECRET'));
         if ($secret) return $secret;
 
-        // Auto-generate and save if nothing exists
+        return bin2hex(random_bytes(32));
+    }
+
+    /**
+     * Paksa rotate secret sekarang (manual reset)
+     * php artisan tinker --execute="App\Services\AltchaService::rotateSecret();"
+     */
+    public static function rotateSecret(): string
+    {
         $secret = bin2hex(random_bytes(32));
         if (class_exists(\App\Models\Setting::class)) {
             \App\Models\Setting::set('altcha_secret', $secret);
+            \App\Models\Setting::set('altcha_secret_rotated_at', (string) time());
         }
-
         return $secret;
     }
-
 }
