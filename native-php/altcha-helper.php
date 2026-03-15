@@ -2,23 +2,19 @@
 /**
  * altcha-helper.php
  * Altcha Self-Hosted Helper - Native PHP
- * 
- * Generates and verifies Altcha proof-of-work challenges
- * without any external API calls.
+ *
+ * STATELESS implementation — verifikasi via HMAC signature, tanpa session.
+ * Tidak ada race condition, aman untuk multi-worker / load balancer.
  */
 
 /**
  * Generate Altcha challenge
- * 
+ *
  * @param int $complexity  Higher = harder for client to solve (default: 100000)
  * @return array           Challenge data to pass to widget
  */
 function generateAltchaChallenge(int $complexity = 100000): array
 {
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
-    }
-
     $salt         = bin2hex(random_bytes(16));
     $secretNumber = rand(1, $complexity);
     $challenge    = hash('sha256', $salt . $secretNumber);
@@ -30,17 +26,10 @@ function generateAltchaChallenge(int $complexity = 100000): array
         'salt'      => $salt,
     ]);
 
-    // Get secret from your config/database
     $serverSecret = defined('ALTCHA_SECRET') ? ALTCHA_SECRET : 'change_me_to_a_random_secret';
     $signature    = hash_hmac('sha256', $signatureData, $serverSecret);
 
-    // Store in session for verification
-    $_SESSION['altcha_challenge']  = $challenge;
-    $_SESSION['altcha_salt']       = $salt;
-    $_SESSION['altcha_secret']     = $secretNumber;
-    $_SESSION['altcha_time']       = time();
-    $_SESSION['altcha_complexity'] = $complexity;
-
+    // Session tidak diperlukan lagi — verifikasi sepenuhnya via HMAC signature
     return [
         'algorithm' => 'SHA-256',
         'challenge' => $challenge,
@@ -51,66 +40,51 @@ function generateAltchaChallenge(int $complexity = 100000): array
 }
 
 /**
- * Verify Altcha solution submitted by client
- * 
+ * Verify Altcha solution — STATELESS via HMAC signature
+ *
  * @param string|null $payload  Base64 payload from widget hidden input
  * @return bool
  */
 function verifyAltchaSolution(?string $payload): bool
 {
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
-    }
-
     if (!$payload) return false;
 
-    // Check session exists
-    if (!isset($_SESSION['altcha_challenge'], $_SESSION['altcha_salt'], $_SESSION['altcha_secret'])) {
-        return false;
-    }
-
-    // Check expired (5 minutes)
-    if (isset($_SESSION['altcha_time']) && (time() - $_SESSION['altcha_time']) > 300) {
-        clearAltchaSession();
-        return false;
-    }
-
-    // Decode payload from widget
     $decoded = base64_decode($payload);
     if (!$decoded) return false;
 
     $data = json_decode($decoded, true);
     if (!$data) return false;
 
-    // Check required fields
+    // Cek field wajib
     foreach (['algorithm', 'challenge', 'number', 'salt', 'signature'] as $field) {
         if (!isset($data[$field])) return false;
     }
 
-    // Verify each field
-    if (strtoupper($data['algorithm']) !== 'SHA-256')          return false;
-    if ($data['challenge'] !== $_SESSION['altcha_challenge'])   return false;
-    if ($data['salt']      !== $_SESSION['altcha_salt'])        return false;
-    if ($data['number'] > $_SESSION['altcha_complexity'] || $data['number'] < 0) return false;
+    // Verifikasi algoritma
+    if (strtoupper($data['algorithm']) !== 'SHA-256') return false;
 
-    // Most important: verify proof-of-work solution
+    // Verifikasi HMAC signature — pastikan challenge dibuat oleh server ini
+    $signatureData = json_encode([
+        'algorithm' => 'SHA-256',
+        'challenge' => $data['challenge'],
+        'maxnumber' => $data['maxnumber'] ?? 100000,
+        'salt'      => $data['salt'],
+    ]);
+    $serverSecret      = defined('ALTCHA_SECRET') ? ALTCHA_SECRET : 'change_me_to_a_random_secret';
+    $expectedSignature = hash_hmac('sha256', $signatureData, $serverSecret);
+
+    // hash_equals() mencegah timing attack
+    if (!hash_equals($expectedSignature, $data['signature'])) {
+        return false;
+    }
+
+    // Verifikasi proof-of-work
     $computedHash = hash('sha256', $data['salt'] . $data['number']);
     if ($computedHash !== $data['challenge']) return false;
 
-    clearAltchaSession();
-    return true;
-}
+    // Verifikasi range number
+    $maxnumber = $data['maxnumber'] ?? 100000;
+    if ($data['number'] < 0 || $data['number'] > $maxnumber) return false;
 
-/**
- * Clear Altcha session data after use
- */
-function clearAltchaSession(): void
-{
-    unset(
-        $_SESSION['altcha_challenge'],
-        $_SESSION['altcha_salt'],
-        $_SESSION['altcha_secret'],
-        $_SESSION['altcha_time'],
-        $_SESSION['altcha_complexity']
-    );
+    return true;
 }
