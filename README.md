@@ -22,17 +22,21 @@ Altcha menggunakan metode **proof-of-work** — tidak ada tracking, tidak ada re
 Server                          Client (Browser)
   |                                    |
   |-- generate challenge() ---------->|
-  |   (salt + secretNumber + hmac)     |
+  |   (salt + hmac signature)          |
   |                                    |-- widget solves proof-of-work
   |                                    |   (mencari angka yang hash-nya cocok)
   |<-- submit payload (base64) --------|
   |                                    |
   |-- verifySolution(payload) -------->|
-  |   (cek hash, salt, challenge)      |
+  |   (cek HMAC signature + PoW)       |
   |-- ✅ valid / ❌ invalid ---------->|
 ```
 
 Tidak ada API call eksternal. Semua verifikasi terjadi di server kamu.
+
+**Keunggulan implementasi ini: STATELESS**
+Verifikasi tidak bergantung pada session — server hanya perlu memvalidasi HMAC signature dan bukti proof-of-work.
+Aman untuk multi-worker, load balancer, dan tidak ada race condition.
 
 ---
 
@@ -89,23 +93,7 @@ document.addEventListener('DOMContentLoaded', function () {
         widget.addEventListener('statechange', (ev) => {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
-
-                // Delay sebelum tombol aktif — beri waktu token sinkron ke session
-                // Sesuaikan nilai (detik) dengan kecepatan server kamu
-                let sisa = 2;
-                const btnText = submitBtn.textContent;
-                submitBtn.disabled = true;
-
-                const interval = setInterval(() => {
-                    submitBtn.textContent = `Siap dalam ${sisa}s`;
-                    sisa--;
-                    if (sisa < 0) {
-                        clearInterval(interval);
-                        submitBtn.textContent = btnText;
-                        submitBtn.disabled = false;
-                    }
-                }, 1000);
-
+                submitBtn.disabled = false;
             } else {
                 submitBtn.disabled = true;
                 document.getElementById('altcha_input').value = '';
@@ -127,11 +115,9 @@ document.addEventListener('DOMContentLoaded', function () {
 <button type="submit" id="btn-submit">Login</button>
 ```
 
-> **Kenapa perlu disable button + delay?**
-> Altcha adalah proof-of-work — browser perlu menyelesaikan kalkulasi hash dulu sebelum token siap.
-> Jika form di-submit terlalu cepat setelah `verified`, token bisa saja belum tersinkron ke session server
-> dan verifikasi akan gagal. Disable + delay 1-2 detik mengatasi masalah ini sepenuhnya.
-> Sesuaikan nilai delay dengan kecepatan server kamu (`sisa = 1` untuk server cepat, `sisa = 3` untuk server lambat).
+> **Kenapa disable button?**
+> Tombol di-disable sampai Altcha selesai kalkulasi proof-of-work di browser.
+> Verifikasi sepenuhnya stateless via HMAC signature — tidak butuh session, tidak ada race condition.
 
 ### 6. Verifikasi saat form di-submit
 
@@ -212,23 +198,7 @@ document.addEventListener('DOMContentLoaded', function () {
         widget.addEventListener('statechange', (ev) => {
             if (ev.detail.state === 'verified') {
                 document.getElementById('altcha_input').value = ev.detail.payload;
-
-                // Delay sebelum tombol aktif — beri waktu token sinkron ke session
-                // Sesuaikan nilai (detik) dengan kecepatan server kamu
-                let sisa = 2;
-                const btnText = submitBtn.textContent;
-                submitBtn.disabled = true;
-
-                const interval = setInterval(() => {
-                    submitBtn.textContent = `Ready in ${sisa}s`;
-                    sisa--;
-                    if (sisa < 0) {
-                        clearInterval(interval);
-                        submitBtn.textContent = btnText;
-                        submitBtn.disabled = false;
-                    }
-                }, 1000);
-
+                submitBtn.disabled = false;
             } else {
                 submitBtn.disabled = true;
                 document.getElementById('altcha_input').value = '';
@@ -253,11 +223,9 @@ document.addEventListener('DOMContentLoaded', function () {
 <button type="submit" id="btn-submit">Login</button>
 ```
 
-> **Kenapa perlu disable button + delay?**
-> Altcha adalah proof-of-work — browser perlu menyelesaikan kalkulasi hash dulu sebelum token siap.
-> Jika form di-submit terlalu cepat setelah `verified`, token bisa saja belum tersinkron ke session server
-> dan verifikasi akan gagal. Disable + delay 1-2 detik mengatasi masalah ini sepenuhnya.
-> Sesuaikan nilai delay dengan kecepatan server kamu (`sisa = 1` untuk server cepat, `sisa = 3` untuk server lambat).
+> **Kenapa disable button?**
+> Tombol di-disable sampai Altcha selesai kalkulasi proof-of-work di browser.
+> Verifikasi sepenuhnya stateless via HMAC signature — tidak butuh session, tidak ada race condition.
 
 ### 5. Verifikasi di Controller
 
@@ -316,9 +284,10 @@ Contoh dengan auto-solve (invisible captcha):
 - `100000` — default, balance antara keamanan dan kecepatan
 - `200000` — lebih aman, sedikit lebih lambat di client
 
-**Expiry**
-- Challenge berlaku 5 menit (sudah diset di helper)
-- Setelah diverifikasi, session langsung dihapus (one-time use)
+**Stateless Verification**
+- Verifikasi via HMAC signature — tidak butuh session
+- Aman untuk multi-worker, load balancer, dan concurrent request
+- Tidak ada race condition
 
 **Kombinasi dengan Rate Limit**
 Altcha mencegah bot otomatis, tapi tetap kombinasikan dengan rate limit by email/username untuk perlindungan berlapis — terutama jika digunakan di Tor hidden service (jangan rate limit by IP).
