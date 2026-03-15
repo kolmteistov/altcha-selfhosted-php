@@ -65,11 +65,28 @@ $challenge = CAPTCHA_ENABLED ? generateAltchaChallenge(100000) : null;
             widget.addEventListener('statechange', (ev) => {
                 if (ev.detail.state === 'verified') {
                     document.getElementById('altcha_input').value = ev.detail.payload;
-                    submitBtn.disabled = false;
-                    submitBtn.title    = '';
+
+                    // Delay before enabling button to ensure token is ready
+                    // Adjust delay (seconds) as needed for your server speed
+                    let sisa = 2;
+                    const btnText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+
+                    const interval = setInterval(() => {
+                        submitBtn.textContent = `Siap dalam ${sisa}s`;
+                        sisa--;
+                        if (sisa < 0) {
+                            clearInterval(interval);
+                            submitBtn.textContent = btnText;
+                            submitBtn.disabled = false;
+                            submitBtn.title    = '';
+                        }
+                    }, 1000);
+
                 } else {
                     // Reset if state changes (e.g. expired)
                     submitBtn.disabled = true;
+                    submitBtn.title    = 'Menunggu verifikasi captcha...';
                     document.getElementById('altcha_input').value = '';
                 }
             });
