@@ -19,33 +19,14 @@
         if (widget && submitBtn) {
             // Disable button until Altcha finishes proof-of-work
             submitBtn.disabled = true;
-            submitBtn.title    = 'Waiting for captcha verification...';
 
             widget.addEventListener('statechange', (ev) => {
                 if (ev.detail.state === 'verified') {
                     document.getElementById('altcha_input').value = ev.detail.payload;
-
-                    // Delay before enabling button to ensure token is ready
-                    // Adjust delay (seconds) as needed for your server speed
-                    let sisa = 2;
-                    const btnText = submitBtn.textContent;
-                    submitBtn.disabled = true;
-
-                    const interval = setInterval(() => {
-                        submitBtn.textContent = `Ready in ${sisa}s`;
-                        sisa--;
-                        if (sisa < 0) {
-                            clearInterval(interval);
-                            submitBtn.textContent = btnText;
-                            submitBtn.disabled = false;
-                            submitBtn.title    = '';
-                        }
-                    }, 1000);
-
+                    // Stateless verification — no delay needed
+                    submitBtn.disabled = false;
                 } else {
-                    // Reset if state changes (e.g. expired)
                     submitBtn.disabled = true;
-                    submitBtn.title    = 'Waiting for captcha verification...';
                     document.getElementById('altcha_input').value = '';
                 }
             });
