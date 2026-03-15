@@ -4,18 +4,25 @@
  * Altcha Self-Hosted Helper - Native PHP
  *
  * STATELESS implementation — verifikasi via HMAC signature, tanpa session.
+ * Expiry disimpan di dalam salt — tidak bisa dimanipulasi client.
  * Tidak ada race condition, aman untuk multi-worker / load balancer.
  */
 
+// Berapa menit challenge berlaku (default: 15 menit)
+define('ALTCHA_TTL_MINUTES', 15);
+
 /**
- * Generate Altcha challenge
- *
- * @param int $complexity  Higher = harder for client to solve (default: 100000)
- * @return array           Challenge data to pass to widget
+ * Generate Altcha challenge dengan expiry di dalam salt
  */
 function generateAltchaChallenge(int $complexity = 100000): array
 {
-    $salt         = bin2hex(random_bytes(16));
+    $saltRaw  = bin2hex(random_bytes(16));
+    $expires  = time() + (ALTCHA_TTL_MINUTES * 60);
+
+    // Embed expires di salt — widget kirim balik salt apa adanya
+    // Teknik ini sesuai library resmi altcha-org/altcha-lib-php
+    $salt = $saltRaw . '?expires=' . $expires;
+
     $secretNumber = rand(1, $complexity);
     $challenge    = hash('sha256', $salt . $secretNumber);
 
@@ -29,7 +36,6 @@ function generateAltchaChallenge(int $complexity = 100000): array
     $serverSecret = defined('ALTCHA_SECRET') ? ALTCHA_SECRET : 'change_me_to_a_random_secret';
     $signature    = hash_hmac('sha256', $signatureData, $serverSecret);
 
-    // Session tidak diperlukan lagi — verifikasi sepenuhnya via HMAC signature
     return [
         'algorithm' => 'SHA-256',
         'challenge' => $challenge,
@@ -40,10 +46,7 @@ function generateAltchaChallenge(int $complexity = 100000): array
 }
 
 /**
- * Verify Altcha solution — STATELESS via HMAC signature
- *
- * @param string|null $payload  Base64 payload from widget hidden input
- * @return bool
+ * Verify Altcha solution — STATELESS: cek expiry dari salt + HMAC + PoW
  */
 function verifyAltchaSolution(?string $payload): bool
 {
@@ -55,15 +58,24 @@ function verifyAltchaSolution(?string $payload): bool
     $data = json_decode($decoded, true);
     if (!$data) return false;
 
-    // Cek field wajib
     foreach (['algorithm', 'challenge', 'number', 'salt', 'signature'] as $field) {
         if (!isset($data[$field])) return false;
     }
 
-    // Verifikasi algoritma
+    // 1. Cek expiry dari salt — hemat CPU kalau sudah basi
+    $salt = $data['salt'];
+    if (str_contains($salt, '?expires=')) {
+        $parts   = explode('?expires=', $salt, 2);
+        $expires = (int) ($parts[1] ?? 0);
+        if ($expires > 0 && time() > $expires) {
+            return false;
+        }
+    }
+
+    // 2. Verifikasi algoritma
     if (strtoupper($data['algorithm']) !== 'SHA-256') return false;
 
-    // Verifikasi HMAC signature — pastikan challenge dibuat oleh server ini
+    // 3. Verifikasi HMAC signature
     $signatureData = json_encode([
         'algorithm' => 'SHA-256',
         'challenge' => $data['challenge'],
@@ -73,18 +85,15 @@ function verifyAltchaSolution(?string $payload): bool
     $serverSecret      = defined('ALTCHA_SECRET') ? ALTCHA_SECRET : 'change_me_to_a_random_secret';
     $expectedSignature = hash_hmac('sha256', $signatureData, $serverSecret);
 
-    // hash_equals() mencegah timing attack
     if (!hash_equals($expectedSignature, $data['signature'])) {
         return false;
     }
 
-    // Verifikasi proof-of-work
-    $computedHash = hash('sha256', $data['salt'] . $data['number']);
-    if ($computedHash !== $data['challenge']) return false;
-
-    // Verifikasi range number
+    // 4. Verifikasi range number
     $maxnumber = $data['maxnumber'] ?? 100000;
     if ($data['number'] < 0 || $data['number'] > $maxnumber) return false;
 
-    return true;
+    // 5. Verifikasi proof-of-work
+    $computedHash = hash('sha256', $data['salt'] . $data['number']);
+    return $computedHash === $data['challenge'];
 }
