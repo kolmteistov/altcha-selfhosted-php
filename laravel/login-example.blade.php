@@ -23,8 +23,12 @@
             widget.addEventListener('statechange', (ev) => {
                 if (ev.detail.state === 'verified') {
                     document.getElementById('altcha_input').value = ev.detail.payload;
-                    // Stateless verification — no delay needed
                     submitBtn.disabled = false;
+                } else if (ev.detail.state === 'expired' || ev.detail.state === 'error') {
+                    // Challenge expired — reload untuk generate challenge baru
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Captcha expired, reloading...';
+                    setTimeout(() => location.reload(), 2000);
                 } else {
                     submitBtn.disabled = true;
                     document.getElementById('altcha_input').value = '';
