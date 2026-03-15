@@ -2,7 +2,10 @@
 /**
  * app/Services/AltchaService.php
  * Altcha Self-Hosted Service - Laravel
- * 
+ *
+ * STATELESS implementation — verifikasi via HMAC signature, tanpa session.
+ * Tidak ada race condition, aman untuk multi-worker (Nginx, Load Balancer, dll).
+ *
  * Drop this file into app/Services/ in your Laravel project.
  * Secret key is stored in the settings table or .env.
  */
@@ -32,15 +35,7 @@ class AltchaService
 
         $signature = hash_hmac('sha256', $signatureData, self::getSecret());
 
-        // Store in Laravel session
-        session([
-            'altcha_challenge'  => $challenge,
-            'altcha_salt'       => $salt,
-            'altcha_secret'     => $secretNumber,
-            'altcha_time'       => time(),
-            'altcha_complexity' => $complexity,
-        ]);
-
+        // Session tidak diperlukan lagi — verifikasi sepenuhnya via HMAC signature
         return [
             'algorithm' => 'SHA-256',
             'challenge' => $challenge,
@@ -51,51 +46,50 @@ class AltchaService
     }
 
     /**
-     * Verify Altcha solution submitted by client
-     * 
-     * @param string|null $payload  Base64 payload from widget hidden input
-     * @return bool
+     * Verify Altcha solution — STATELESS via HMAC signature
+     * Tidak butuh session, tidak ada race condition
      */
     public static function verifySolution(?string $payload): bool
     {
         if (!$payload) return false;
 
-        // Check session exists
-        if (!session()->has('altcha_challenge') ||
-            !session()->has('altcha_salt') ||
-            !session()->has('altcha_secret')) {
-            return false;
-        }
-
-        // Check expired (5 minutes)
-        if ((time() - session('altcha_time', 0)) > 300) {
-            self::clearSession();
-            return false;
-        }
-
-        // Decode payload
         $decoded = base64_decode($payload);
         if (!$decoded) return false;
 
         $data = json_decode($decoded, true);
         if (!$data) return false;
 
-        // Check required fields
+        // Cek field wajib
         foreach (['algorithm', 'challenge', 'number', 'salt', 'signature'] as $field) {
             if (!isset($data[$field])) return false;
         }
 
-        // Verify each field
-        if (strtoupper($data['algorithm']) !== 'SHA-256')              return false;
-        if ($data['challenge'] !== session('altcha_challenge'))         return false;
-        if ($data['salt']      !== session('altcha_salt'))              return false;
-        if ($data['number'] > session('altcha_complexity') || $data['number'] < 0) return false;
+        // Verifikasi algoritma
+        if (strtoupper($data['algorithm']) !== 'SHA-256') return false;
 
-        // Most important: verify proof-of-work solution
+        // Verifikasi HMAC signature — pastikan challenge dibuat oleh server ini
+        // Tidak perlu session: signature sudah membuktikan keaslian challenge
+        $signatureData = json_encode([
+            'algorithm' => 'SHA-256',
+            'challenge' => $data['challenge'],
+            'maxnumber' => $data['maxnumber'] ?? 100000,
+            'salt'      => $data['salt'],
+        ]);
+        $expectedSignature = hash_hmac('sha256', $signatureData, self::getSecret());
+
+        // hash_equals() mencegah timing attack
+        if (!hash_equals($expectedSignature, $data['signature'])) {
+            return false;
+        }
+
+        // Verifikasi proof-of-work
         $computedHash = hash('sha256', $data['salt'] . $data['number']);
         if ($computedHash !== $data['challenge']) return false;
 
-        self::clearSession();
+        // Verifikasi range number
+        $maxnumber = $data['maxnumber'] ?? 100000;
+        if ($data['number'] < 0 || $data['number'] > $maxnumber) return false;
+
         return true;
     }
 
@@ -124,17 +118,4 @@ class AltchaService
         return $secret;
     }
 
-    /**
-     * Clear Altcha session data after use
-     */
-    public static function clearSession(): void
-    {
-        session()->forget([
-            'altcha_challenge',
-            'altcha_salt',
-            'altcha_secret',
-            'altcha_time',
-            'altcha_complexity',
-        ]);
-    }
 }
