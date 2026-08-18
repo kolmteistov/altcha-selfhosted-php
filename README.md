@@ -307,6 +307,8 @@ Altcha mencegah bot otomatis, tapi tetap kombinasikan dengan rate limit by email
 
 ---
 
+https://github.com/user-attachments/assets/97b1408f-a60c-466a-a031-5ed2b24c0262
+
 ## Referensi
 
 - [Altcha Official](https://altcha.org)
